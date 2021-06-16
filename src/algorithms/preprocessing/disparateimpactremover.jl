@@ -122,6 +122,84 @@ function repairer(X, y)
         quantile_unit = 1.0/num_quantiles
 
         if repair_types[col_id] in {int, float}
+            for quantile in 1:num_quantiles
+                median_at_quantiles = []
+                indices_per_group = {}
+
+                for group in all_stratified_groups
+                    group_data_at_col = stratified_group_data[group][col_id]
+                    num_val = length(group_data_at_col)
+                    offset = convert(Int64, round(group_offsets[group]*num_val))
+                    number_to_get = convert(Int64, round((group_offsets[group] + quantile_unit - offset))*num_val)
+                    group_offsets[group] += quantile_unit
+
+                    if number_to_get > 0
+
+                        offset_data = group_data_at_col[offset:offset+number_to_get]
+                        indices_per_group[group] = [i for (val_indices, _) in offset_data for i in val_indices]
+                        values = sort!([convert(Float64,val) for (_, val) in offset_data])
+
+                        push!(median_at_quantiles, get_median(values, kdd))
+                    end
+                end
+            end
+            median = get_median(median_at_quantiles, kdd)
+            median_val_pos = index_lookup[col_id][median]
+
+            for group in all_stratified_groups
+                for index in indices_per_group[group]
+                    original_value = col[index]
+                    
+                    current_val_pos = index_lookup[col_id][original_value]
+                    distance = median_val_pos - current_val_pos
+                    distance_to_repair =  convert(Int64, round(distance*repair_level))
+                    index_of_repair_value = current_val_pos + distance_to_repair
+                    repaired_value = unique_col_vals[col_id][index_of_repair_value]
+
+                    data_dict[col_id][index] = repaired_value
+                end
+            end
+
+        elseif repair_types[col_id] in {str}
+            feature = CategoricalFeature(col)
+            categories = feature.bin_index_dict.keys()
+            group_features = get_group_data(all_stratified_groups, stratified_group_data, col_id)
+            categories_count = get_categories_count(categories, all_stratified_groups, categories_count, group_features)
+            categories_count_norm = get_categories_count_norm(categories, all_stratified_groups, categories_count, group_features)
+            median = get_median_per_category(categories, categories_count_norm)
+            # dist_generator Needs to be filled output
+            # count_generator Needs to be filled out
+            group_features, overflow = flow_on_group_features(all_stratified_groups, group_features, count_generator)
+            group_features, assigned_overflow, distribution = assigned_overflow(all_stratified_groups, categories, overflow, group_features, dist_generator)
+
+            for group in all_stratified_groups
+                indices = stratified_group_indices[group]
+                for (i, index) in enumerate(indices)
+                    repaired_value = group_features[group][i] #may need correction
+                    data_dict[col_id][index] = repaired_value
+                end
+            end
+        end
+        repaired_data = []
+        for (i, orig_row) in enumerate(data_to_repair)
+            new_row = [orig_row[j] if j ∉ cols_to_repair else data_dict[j][i] for j in col_ids]
+            push!(repaired_data, new_row)
+        end
+    end
+    return repaired_data
+end
+
+# function get_group_data(all_stratified_groups, stratified_group_data, col_id)
+#     group_features={}
+#     for group in all_stratified_groups:
+
+
+
+
+
+        
+
+
             
 
 # function checkDI(grps, y)
